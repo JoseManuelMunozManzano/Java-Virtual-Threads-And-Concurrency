@@ -56,3 +56,42 @@ Los `Virtual Threads` brillan en ciertas situaciones. Aprenderemos cuando son de
 **Estructura del curso - Paso a paso**
 
 ![alt Course Structure](./images/01-CourseStructure.png)
+
+## Deep Dive Intro Virtual Threads
+
+[README](./01-virtual-thread-playground/README.md#deep-dive-into-virtual-threads)
+
+Ver proyecto `01-virtual-thread-playground`:
+
+- `sec01`
+    - `Task`: Creamos un método que simula una llamada de red lenta.
+    - `InboundOutboundTaskDemo`: Creamos un bucle de Threads originales de Java (Platform Threads) que llaman a `Task`, para ver como de costoso es crear Threads.
+        - Si indicamos que queremos crear 50_000 platform threads, dará un error `out of memory` o `process/resource limits reached`. Esto indica que hay restricciones a la cantidad de platform threads que se pueden crear.
+        - Añadimos un método para mostrar como se crean threads actualmente, usando `factory methods`. Siguen siendo platform threads, no virtual threads, y el hilo principal de la app espera a que se completen los threads para terminar el programa.
+        - Añadimos otro método cuyos threads se ejecutan en segundo plano, de forma que la app termina aunque el thread siga ejecutándose.
+        - Añadimos otro método usando `CountDownLatch` para que, aunque sean `daemon threads` la aplicación espere a que todos los threads hayan hecho su trabajo para terminar.
+        - Añadimos un método donde creamos `virtual threads` usando el builder (no se puede con new).
+- `sec02`
+    - `Task`: Creamos métodos que llaman a otros métodos de forma encadenada, y que pueden lanzar excepciones.
+        - Vemos que, tanto usando Platform Threads como Virtual Threads, vemos la stack trace, para propósitos de debug, sin problemas.
+    - `StackTraceDemo`: Clase main.
+- `sec03`
+    - `Task`: Demo con tarea de CPU intensiva para ver como se comportan los Platform Threads vs VirtualThreads.
+    - `CPUTaskDemo`: Clase main.
+- `sec04`
+    - `CooperativeSchedulingDemo`: Una demo para comprender la planificación cooperative. NO tendremos que usarlo en aplicaciones reales.
+- `sec05`
+    - `Lec01RaceCondition`: Una demo de condiciones de carrera que provocan corrupción de la data.
+    - `Lec02Synchronization`: Una demo usando sincronización para evitar la condición de carrera que hemos visto en`Lec01RaceCondition`.
+    - `Lec03SynchronizationWithIO`: Una demo del problema de escalabilidad que se daba en Java 21, 22 y 23, llamado Thread Pinning. Compilar usando Java 21, 22 o 23.
+        - Se añade una traza para saber si tenemos problemas de `pinning`.
+    - `Lec04ReentrantLock`: Es la demo `Lec02Synchronization` pero hecha usando `ReentrantLock`.
+    - `Lec05ReentrantLockWithIO`: Es la demo `Lec03SynchronizationWithIO` pero hecha usando `ReentrantLock`.
+       - Vemos en el resultado que no obtenemos la traza de que haya `pinning`.
+- `sec06`
+    - `Lec01ThreadFactory`: Ejemplo de uso de `ThreadFactory`.
+    - `Lec02ThreadMethodsDemo`: Ejemplos mostrando algunos métodos útiles de thread.
+- `util`
+    - `CommonUtils`:
+        - Método `sleep()`: Vamos a usar mucho Thread.sleep() y no quiero tener que hacer el catch de InterruptedException cada vez.
+        - Método `timer()`: Cuando tarda en ejecutarse un runnable.
