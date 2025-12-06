@@ -185,7 +185,7 @@ Entonces, el platform thread coge la tarea y comienza a ejecutarla.
 
 ![alt Our Machine - Action Parking](./images/12-OurMachineActionPark.png)
 
-Cuando ve `thread.sleep()` o algún tipo de llamada de red, coge la tarea y la lleva de nuevo a la memoria. A esto se le llama `action parcking`.
+Cuando ve `thread.sleep()` o algún tipo de llamada de red, coge la tarea y la lleva de nuevo a la memoria. A esto se le llama `action parking`.
 
 Es decir, el objetivo final es que el platform thread **no se bloquee**. Mientras haya tareas, ejecutará. Cuando ve algo bloqueante, hasta que no obtenga la respuesta, la tarea se aparca en memoria y cojo otra tarea.
 
@@ -793,3 +793,559 @@ En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
 
 - `sec06`
   - `Lec02ThreadMethodsDemo`: Ejemplos mostrando algunos métodos útiles de thread.
+
+## Executors and Virtual Threads
+
+Hasta ahora hemos estado jugando directamente con threads, con la intención de saber como funcionan las cosas a bajo nivel, pero en aplicaciones reales no se trabaja así.
+
+Necesitamos un framework de concurrencia de alto nivel. Esto es `ExecutorService`.
+
+### ExecutorService: Introduction
+
+`ExecutorService` se añadió en Java 1.5.
+
+- Framework de concurrencia de alto nivel.
+  - Abstrae la gestión de Threads.
+    - Hace Thread pooling: Como los platform threads son caros de crear, intenta reusar los threads existentes.
+  - Provee una interface sencilla para que los desarrolladores puedan manejar Tasks.
+    - Si tenemos que ejecutar una cierta tarea en un thread separado, se lo entregamos al `ExecutorService`, que lo hará por nosotros y nos devolverá el resultado.
+
+**Task => SubTasks**
+
+- ¡Virtual Thread es barato!
+- Una tarea puede dividirse en muchas subtareas más pequeñas.
+
+![alt Task => SubTasks 1](./images/52-TaskSubtasks.png)
+
+Imaginemos este caso. Tenemos tres servicios de aerolíneas y queremos encontrar la mejor oferta.
+
+Para ello, tenemos que ejecutar cada uno de esos servicios (llamadas I/O) para obtener su precio y luego los compararemos.
+
+![alt Task => SubTasks 2](./images/53-TaskSubtasksWithVirtualThreads.png)
+
+En vez de hacer las llamadas a los servicios secuencialmente, de uno en uno, como parte de una tarea, podemos dividirlas en varias subtareas más pequeñas, ya que son completamente independientes.
+
+Como crear virtual threads es muy barato, en la imagen vemos que se crean 3 virtual threads que se van a ejecutar en paralelo.
+
+Con esto mejoramos el tiempo de respuesta general.
+
+Es en escenarios como este donde `ExecutorService` es de gran ayuda.
+
+Como hay muchas palabras similares, vamos a discutir que significa cada una:
+
+- **Executor** es una Functional Interface.
+  - **ExecutorService** es una interface que extiende de **Executor**.
+- **Executors** es una utility class con factory methods para crear una instancia de implementación de ExecutorService.
+  - Por ejemplo, ForkJoinPool es una implementación.
+
+Para los virtual threads, esto es importante:
+
+- **¡Se supone que los Virtual Threads NO DEBEN agruparse (pooled)!**
+  - Tasks
+  - Los Virtual Threads están destinados a ser creados bajo demanda, y desechados una vez la tarea está hecha.
+- Entonces, ¿cuál es el uso de **ExecutorService** con Virtual Threads?
+  - Gestión de creación de Thread Per Task.
+  - Alguien tiene que crear los virtual threads y comenzarlo por nosotros (start()). Eso lo hace **ExecutorService**
+
+![alt Don´t Pool Virtual Threads](./images/54-DontPoolVirtualThreads.png)
+
+### ExecutorService: The Different Types
+
+Estos son los tipos más comunes de ExecutorService. Hay alguno más, como `Work Stealing Pool` que sirve para crear `ForkJoinPool`.
+
+![alt Types Of ExecutorService](./images/55-TypesOfExecutorService.png)
+
+El tipo sombreado de verde, `Thread Per Task Executor`, usa por debajo el virtual thread builder factory, asi que, usándolo, podemos crear virtual threads.
+
+![alt ExecutorService Submit](./images/56-ExecutorServiceSubmit.png)
+
+El método `executorService.submit()` acepta un tipo de objeto `Runnable` o `Callable`.
+
+La implementación de `executorService` es thread safe, así que muchos threads pueden usar este método pra someter la tarea.
+
+Todas las implementaciones de `executorService`, como `Fixed / Single / Cached / Scheduled`, incluso `ForkJoinPool` poseen una cola interna como la de la imagen.
+
+Cuando se someten tareas, todas se añaden a esta cola. Dependiendo de la implementacion, tendremos más threads que pueden estar ociosos si no hay tareas.
+
+Cuando hay tareas en la cola, estos threads las cogen y las comienzan a ejecutar, devolviéndonos luego el resultado.
+
+Así es como han funcionado históricamente.
+
+![alt ExecutorService With Virtual Threads](./images/57-ExecutorServiceWithVirtualThreads.png)
+
+Con el nuevo `Thread Per Task Executor` el uso del método `submit()` sigue igual, pero por debajo, vemos en la imagen que no hay cola.
+
+Lo que ocurre es que el método `submit()` obtiene la tarea y se la dará al virtual thread y lo comenzará (método `start()`).
+
+Ya sabemos qué ocurre cuando comienza un virtual thread. El carrier thread lo coge y lo ejecuta.
+
+Como estamos usando la interface `ExecutorService`, nuestro código es el mismo que hubiéramos escrito antes de que existieran los virtual threads.
+
+Pero, por debajo, obtendremos los beneficios de una ejecución no bloqueantes, gracias a los virtual threads.
+
+### Executors and AutoCloseable
+
+`ExecutorService` ahora extiende la interface `AutoCloseable` (¡desde Java 21, antes no!).
+
+- ¿Se supone que debe usarse `ExecutorService` con `try-with-resources` siempre?
+  - Depende.
+  - Por ejemplo: si estamos usando `shudown()`, se puede usar `try(...)`.
+    - En aplicaciones que terminan, de corta vida, va a quedar más limpio.
+  - Spring-Web / Server applications, ...etc., ExecutorService se usará en toda la aplicación. No se usa `shudown()`.
+    - Normalmente, crearemos ExecutorService cuando se ejecute la aplicación, como un bean.
+    - Estas aplicaciones están siempre ejecutándose en producción, no terminan nunca.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `Lec01AutoCloseable`: Creamos una implementación de ExecutorService.
+    - Al ejecutar el ejemplo vemos que el main thread somete la tarea y el thread pool-1-thread-1 ejecuta la tarea.
+
+### Demo: Comparing Executor Service Types
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `Lec02ExecutorService`: Se discuten varios tipos de ExecutorService, incluyendo el nuevo Thread Per Task Executor.
+
+### External Service
+
+Hasta ahora hemos jugado con `Thread.sleep()` para simular tareas ejecutándose en segundo plano.
+
+Pero, en la vida real, no se trabaja así. Haremos muchas peticiones y obtendremos su respuesta, haremos peticiones a BD, llamaremos a otros microservicios.
+
+Es por eso que vamos a usar servicios externos (ya vistos en el README principal) para simular microservicios externos.
+
+Enviaremos peticiones a estos servicios y recibiremos la respuesta.
+
+Vamos a enfocarnos, hasta próximo aviso, en `sec01 - Product Information Provider`.
+
+![alt Sec01](./images/58-ExternalServiceSec01.png)
+
+Cada endpoint debe entenderse como un microservicio separado.
+
+### Creating the External Service Client
+
+En nuestro proyecto playground, tenemos que poder enviar peticiones al servicio externo y recibir la respuesta.
+
+Vamos a crear un cliente muy sencillo.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `externalservice`: Nuevo paquete donde codificaremos nuestro cliente.
+    - `Client`: Clase cliente que hace peticiones a los servicios externos y obtiene la respuesta.
+
+### Accessing Responses Using Future
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `Lec03AccessResponseUsingFuture`: Jugamos con el cliente creado anteriormente.
+    - Dejamos de utilizar `CommonUtils.sleep()`.
+    - Usando `executor.submit()` obtenemos un Future. Un Future es un placeholder (marcador de posición) a partir del cual podemos acceder a la respuesta.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### Concurrency vs Parallelism
+
+Cuando decimos concurrencia versus paralelismo no estamos hablando de dos cosas que compiten.
+
+Concurrencia es un término muy amplio y paralelismo es un término específico de ella.
+
+Concurrencia consiste en tratar con muchas tareas en un periodo de tiempo.
+
+![alt Concurrency](./images/59-Concurrency.png)
+
+Imaginemos que el thread de la izquierda (en gris) es Chrome y el de la derecha (en azul) es IntelliJ, y tenemos una CPU.
+
+Nuestra CPU ejecutará durante un tiempo Chrome y durante otro tiempo IntelliJ. Trata con muchas tareas en un periodo de tiempo, pero de una en una, cambiando de tarea, dando la ilusión de que ambos procesos se ejecutan a la vez.
+
+Paralelismo consiste en romper tareas en muchas subtareas más pequeñas que puedan procesarse independientemente para conseguir una mejora de rendimiento significativa.
+
+![alt Parallelism](./images/60-Parallelism.png)
+
+Imaginemos que como parte de una petición, obtenemos un array y tenemos que ordenarlo. Pero el array contiene 6 millones de items.
+
+Si intentamos usar un solo thread, este será planificado (scheduled) en un solo CPU, así que llevará mucho tiempo.
+
+Lo que podemos hacer es dividir ese array en 6 arrays de 1 millón de items cada uno, usando varias CPUs para realizar la ordenación simultaneamente.
+
+### The Future Interface: Useful Methods
+
+![alt Virtual Thread Executor](./images/61-VirtualThreadExecutor.png)
+
+En la imagen pueden verse algunos métodos útiles de `Future`.
+
+Usando Virtual Thread Executor, si tenemos una tarea que consume mucho tiempo, se puede seguir usando `submit()` y, por cada tarea a la que hacemos `submit()`, obtendremos un objeto `Future`.
+
+`Future` es un objeto placeholder, así que sea lo que sea lo que devuelva `Callable`, podemos acceder a él vía el objeto `Future`.
+
+- `future.get()`: Esperamos a que se complete el callable y obtenemos la respuesta. ¿Qué pasa si la respuesta tarda 20sg en llegar?
+- `future.get(2, TimeUnit.SECONDS)`: Podemos pasar un tiempo máximo de espera, un timeout. Si pasado ese tiempo no tenemos respuesta, se lanza TimeoutException, y podemos continuar con un valor por defecto (si lo queremos así).
+- `future.cancel(true)`: Interrumpe la ejecución del thread, en segundo plano.
+
+Más adelante, en la siguiente sección, vamos a hablar de `CompletableFuture`, done podremos escribir código en una forma declarativa (estilo funcional), y volveremos a hablar de estos métodos.
+
+### Building the Aggregator Service
+
+![alt Aggregator Service](./images/62-AggregatorService.png)
+
+En esta clase vamos a crear una clase agregadora sencilla.
+
+En la vida real tendremos muchos backends como productService, ratingService, pricingService, etc. Los clientes, como los navegadores, no van a querer llamar a esos backends.
+
+Lo que se hace es un servicio agregador. Se le suele llamar `Gateway Aggregator Pattern` o `API Composition Pattern` y llamará a todos los backends para luego combinar la respuesta (el cuadro con el json).
+
+- `sec07`
+  - `aggregator`: Nuevo paquete donde codificaremos nuestro cliente.
+    - `ProductDto`: Record que representa el producto.
+    - `AggregatorService`: La clase agregadora.
+  - `Lec04AggregatorDemo`: Clase main para el ejemplo de aggregator.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### Do We Create Extra Thread?
+
+Hablamos sobre una cosa de la clase `AggregatorService` (ver el código)
+
+[Extra Thread?](./src/main/java/com/jmunoz/sec07/Lec04AggregatorDemo.java)
+
+### Clarification: Virtual Thread Executor Behavior
+
+En la clase `Lec01AutoCloseable` estuvimos hablando sobre `AutoCloseable` en el método `withAutoCloseable()` donde añadimos un `try`.
+
+Si ese `try` la aplicación seguirá ejecutándose y tendríamos que indicar un `shutdown()` para parar la aplicación.
+
+Pero en `Lec04AggregatorDemo` no estamos usando ningún `try` pero la aplicación termina tras hacer las llamadas. ¿Por qué no hemos necesitamos llamar a `shutdown()`?
+
+Porque para el virtual thread executor no hay platform threads como parte del executor. Solo tenemos carrier threads y estos son como los daemon threads, así que se ejecutan y terminan.
+
+En el método `toProductDto()` se realiza un bloqueo porque `future.get()` es bloqueante. Debido a eso, nuestro main thread no termina.
+
+Solo termina el main thread cuando se escriba la lista en la terminal.
+
+### Executors with Virtual Thread Factory
+
+Si ejecutamos `Lec04AggregatorDemo`, veremos que no aparece un nombre de carrier thread. Para que aparezca el nombre para el virtual thread, tenemos que configurarlo via el Thread Factory.
+
+Para ello, realizamos la siguiente modificación:
+
+- `Lec04AggregatorDemo`: Cambiamos de `newVirtualThreadPerTaskExecutor` a `newThreadPerTaskExecutor`, que permite configurar un factory. El otro método ya tiene un factory por defecto.
+
+### Challenges with Executors & Virtual Threads
+
+Hasta ahora hemos estado jugando con `ThreadPerTaskExecutor` y todo ha funcionado bien.
+
+- ExecutorService
+  - Para `Platform Threads` provee estas implementaciones
+    - single / fixed / cached / scheduled / fork-join-pool (este para tareas de CPU)
+  - Para `Virtual Threads`, desde Java 21.
+    - thread-per-task executor
+- Virtual Threads
+  - Genial para tareas IO para conseguir ¨beneficios no bloqueantes entre bastidores"
+
+¿Cómo puedo usar Virtual Threads para un escenario single / fixed / cached / scheduled / fork-join-pool, pesando para Platform Threads?
+
+Desafortunadamente, Java no provee una API standard para esto. Entonces ¿cómo lo hacemos?
+
+De esto van las siguientes clases, de ver algunas limitaciones y desafios en torno a ellos.
+
+### The Need For Concurrency Limit
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `Lec05ConcurrencyLimit`: Vemos las limitaciones de Virtual Threads si queremos usar `newFixedThreadPool` por temas de límites de concurrencia.
+    - Parece que funciona bien, pero...
+    - Una de las características de los Virtual Threads es que se supone que no deben estar en pool.
+    - Pero fixed crea un pool de threads que reutiliza, y, aunque permite un factory, no permite un factory de Virtual Threads.  
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+La documentación de Java de Oracle indica:
+
+![alt Don´t Pool Virtual Threads](./images/63-DontPoolVirtualThreads.png)
+
+Para casos de límite de concurrencia el equipo de Java recomienda usar semáforos.
+
+![alt Use Semaphores For Limited Resources](./images/64-UseSemaphoresForLimitedResources.png)
+
+### Semaphore
+
+Antes de empezar a usarlos, hablemos de los semáforos.
+
+![alt Semaphore 1](./images/65-Semaphore1.png)
+
+Imaginemos que esta es la pieza crítica de código (o método) que tenemos, y varios threads están intentando ejecutarlo, pero, como parte de nuestro requerimiento, solo se permiten un máximo de 3 llamadas concurrentes.
+
+![alt Semaphore 2](./images/66-Semaphore2.png)
+
+Para proteger nuestro método, podemos usar la suma de nuestro objeto. Explicado a alto nivel, esa suma es algo parecido a `ReentrantLock` o la palabra clave `synchronized`.
+
+En `ReentrantLock` sabemos que solo un thread puede obtener el bloqueo. Cuando entre al método, lo ejecutará, luego se desbloqueará y dejará el método.
+
+Aquí se llaman `permit`, así que crearemos algunos objetos con el número de `permits`, como 3 `permits`, 5 `permits`, etc., dependiendo del requerimiento.
+
+Los threads tendrán que adquirir este `permit`, entrarán a ese bloque de código y lo ejecutarán.
+
+![alt Semaphore 3](./images/67-Semaphore3.png)
+
+En nuestro ejemplo, solo se permiten que 3 threads puedan entrar al bloque de código. Los demás esperarán, porque no hay más `permits`.
+
+![alt Semaphore 4](./images/68-Semaphore4.png)
+
+Cuando un thread se va, libera el `permit` y otro thread que estaba esperando puede ahora entrar.
+
+A alto nivel, este es el funcionamiento.
+
+**¿Cómo usarlo en nuestra aplicación?**
+
+![alt Semaphore 5](./images/69-Semaphore5.png)
+
+- Creamos un objeto semáforo con el número de `permits`.
+- El thread adquiere el permit.
+  - Este método es bloqueante, algo parecido a un `lock`.
+  - Con Virtual Threads, lo que hace la JVM es hacer el `park` de ese thread durante ese tiempo.
+    - Es decir, aunque parezca un bloque de código en estilo bloqueante, por detrás obtenemos los beneficios no bloqueantes.
+- Ejecuta el trozo de código crítico.
+- Se libera el `permit`.
+
+**Preguntas Típicas**
+
+- ¿Son lo mismo?
+  - `Semaphore semaphore = new Semaphore(1);`
+  - `Lock lock = new ReentrantLock();`
+
+Si creo un semáforo con 1 `permit`, ¿en qué se diferencia de un `ReentrantLock`? En teoría, ambos trabajarán más o menos de la misma forma, ¿no?
+
+A muy alto nivel, realmente sí, ambos se comportarán más o menos de la misma forma.
+
+Sin embargo, hay algunas diferencias.
+
+- Ambos fueron introducidos en Java 1.5
+- Lock
+  - ¡Al thread que adquiere el `lock` se le supone que hará el `unlock`!
+- Semaphore
+  - ¡Cualquier thread puede adquirir el `permit` y cualquier thread puede liberar el `permit`!
+
+Lo de que cualquier thread pueda liberar el `permit` parece muy extraño. Veamos este funcionamiento:
+
+![alt Semaphore 6](./images/70-Semaphore6.png)
+
+- Creamos un semáforo con 1 `permit`.
+- Tendremos 2 threads, A y B (no se ven en el código)
+- El thread A adquiere el `permit` y el thread B queda esperando.
+- El thread A entra al trozo de código crítico y lo ejecuta.
+- Idealmente, el thread A tras ejecutar el código se supone que debe liberar el `permit`.
+- Pero, en vez de liberarlo, vemos que crea un virtual thread y le da algunas tareas a este virtual thread.
+- En el código vemos que las tareas que tiene el virtual thread son esperar durante 5 segundos y luego liberar el `permit`.
+- Por tanto, vemos que se le ha dado al virtual thread la tarea de liberar.
+- El thread A se ha ido sin liberar el `permit`.
+- El thread B tiene que seguir esperando, aunque el thread A ya se haya ido y nadie esté ejecutando el trozo de código crítico.
+- Tras 5 segundos, el virtual thread liberar el `permit` y el thread B ya puede adquirirlo.
+
+Otra cosa rara que podemos hacer con los semáforos es la siguiente:
+
+![alt Semaphore 2](./images/66-Semaphore2.png)
+
+- De nuevo, este es el trozo de código crítico y tiene 3 `permits`.
+- Esto es como compartir una habitación entre 3 personas, puede haber personas que no les gusta compartir.
+- Es decir, puede que algunos threads, cuando ejecuten el código digan que no quieren que ningún otro thread les interrumpa. El thread quiere ejecutar el código en exclusiva.
+
+![alt Semaphore 7](./images/71-Semaphore7.png)
+
+- Lo que podemos hacer es, condicionalmente, es permitir que un thread pueda obtener todos los `permits` disponibles, en nuestro ejemplo, los 3 `permits`.
+- Los demás threads tendrán que esperar, ya que no quedan `permits` disponibles que adquirir.
+- Cuando el thread que tenga todos los `permits` se vaya, los liberará todos.
+
+### Building The Virtual Thread Concurrency Limiter
+
+En esta clase vamos a corregir el problema que teníamos con el límite de concurrencia y los virtual threads usando semáforos.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `concurrencylimit`: Nuevo paquete.
+    - `ConcurrencyLimiter`: Es una utility class que limita la concurrencia basada en un valor entero que se le pasa. 
+  - `Lec06ConcurrencyLimitWithSemaphore`: Corrige el problema que teníamos con el límite de concurrencia y los virtual threads (ver `Lec05ConcurrencyLimit`) usando semáforos.
+    - Ahora vemos que se crean virtual threads distintos (no un pool) y no se reutilizan.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### Concurrency Limits: Managing Order
+
+Aunque nuestro limitador de concurrencia parece funcionar bien, hay un pequeño problema.
+
+Para entenderlo mejor, veremos el funcionamiento de `Lec05ConcurrentLimit`.
+
+Si se indica estos códigos en esa clase, vemos que se obtiene:
+
+```java
+execute(Executors.newFixedThreadPool(1), 20);
+```
+
+- Estamos con platform threads, con un fixed pool de 1.
+  - Si ejecutamos veremos que se someten 20 tareas y vamos secuencialmente de 1 en 1. Está ordenado.
+
+```java
+execute(Executors.newFixedThreadPool(3), 20);
+```
+
+- Estamos con platform threads, con un fixed pool de 3.
+  - Si ejecutamos veremos que se someten 20 tareas y vamos con ejecución paralela de 3 en 3.
+  - Aunque las tres tareas que se ejecutan en paralelo no tienen orden, si vemos que las 20 tareas se ejecutan en orden.
+  - Es decir, va del 1 al 20, pero si toca ejecutar la 7, 8 y 9, a lo mejor se ejecutan como 9, 8 y 7, pero no pierde el orden global, no se ejecuta la 7, 8 y la 1.
+
+Pero en `Lec06ConcurrencyLimitWithSemaphore` con virtual threads, si ejecutamos, veremos que algunos virtual threads se ejecutan completamente desordenados.
+
+![alt Semaphore 8](./images/72-Semaphore8.png)
+
+El producto 4 se ha ejecutado el primero, y el producto 3 detrás del 5. No hay orden.
+
+Incluso indicar como límite 1 sigue sin funcionar: 
+
+```java
+var limiter = new ConcurrencyLimiter(Executors.newThreadPerTaskExecutor(factory), 1);
+```
+
+![alt Semaphore 9](./images/73-Semaphore9.png)
+
+**¿Por qué ocurre esto?**
+
+Todas las implementaciones de ExecutorService para los platform threads (fixed / single / cached / scheduled) tienen una cola interna, una estructura de datos que mantiene todas las tareas, y los threads cogen esas tareas de la cola. Por eso pueden mantener el orden. La primera tarea que se somete (submit()) va a ser la que coja el thread.
+
+![alt ExecutorService Platform Thread](./images/74-ExecutorServicePlatformThread.png)
+
+Para los virtual threads, el Thread-Per-Task Executor, **no existe ninguna cola** y cuando se somete (submit()) una tarea, se crea el virtual thread y se comienza. Ahora es el carrier thread el que coge esa tarea y la ejecuta.
+
+Si tenemos 10 CPUs tendremos 10 carrier threads y, si tenemos 20 virtual threads, todas compitiendo a la vez, el orden depende de que virtual thread coge el carrier thread.
+
+![alt ExecutorService Virtual Thread](./images/75-ExecutorServiceVirtualThread.png)
+
+Es extremadamente difícil garantizar el orden de ejecución cuando estamos con un Thread-Per-Task Executor.
+
+Vamos a ver como hacerlo.
+
+### Virtual Thread Concurrency Limiter With Order
+
+Para gestionar el orden de ejecución correctamente, tenemos que gestionar nosotros una cola.
+
+En `src/java/com/jmunoz` modificamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `concurrencylimit`
+    - `ConcurrencyLimiter`: Modificado para proveer una ejecución ordenada (o secuencial) usando una cola.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+Con este cambio, ahora la ejecución con virtual threads se ve así, ordenado de forma global:
+
+![alt Semaphore 10](./images/76-Semaphore10.png)
+
+Recordar que nuestro objetivo es un orden global. Usando 3 llamadas concurrentes, puede que el orden sea 2, 3, 1, pero globalmente está ordenado. El thread pool fixed también funciona así.
+
+Notar que el thread `jm4` está ejecutando la tarea del producto 3. Esto es normal, no va a coincidir el número de thread con el número de la tarea. No nos importa el número del thread, sino que la tarea se ejecute en el orden apropiado.
+
+Sin la cola, probablemente `jm4` ejecutará la tarea número 4, y ya no estaría ordenado.
+
+Y si indicamos un limit de 1: `var limiter = new ConcurrencyLimiter(Executors.newThreadPerTaskExecutor(factory), 1);` entonces estaría totalmente ordenado.
+
+### ScheduledExecutorService with Virtual Threads
+
+En esta clase vamos a ver otro problema.
+
+En el fuente `Lec02ExecutorService` discutimos varios tipos de Executor Service, muchos de ellos solo para platform thread.
+
+Para virtual threads hemos creado equivalentes:
+
+- `singleThreadPool`: Usando semáforos con un límite a 1. 
+- `fixedThreadPool`: Usando semáforos con un límite mayor a 1.
+- `cachedThreadPool`: No tenemos que crear nada equivalente. Es crear tantos threads como queramos basado en el número de tareas. Esto es lo que hace, a alto nivel, nuestro `virtualThreadPerTaskExecutor`, sin reutilizar threads y sin pool.
+- `scheduledExecutor`: Si queremos llamar de forma periódica a un servicio web remoto, ¿podemos usar virtual threads? Directamente no, pero podemos hacer que un platform thread delegue la tarea a un virtual thread.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `Lec07ScheduledExecutorWithVirtualThreads`: Como no se puede usar directamente un schedulecExecutor con virtual threads, hacemos que un platform thread delegue la tarea a un virtual thread.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### Stream Gatherers: Concurrent Mapping
+
+Esto que vamos a ver es para Java 24.
+
+El problema es el siguiente:
+
+Antes de Java 24, Java Stream carecía de extensibilidad. Los streams eran poderosos, pero inflexibles.
+
+![alt Java Stream: Lacked Extensibility](./images/77-JavaStreamLackedExtensibility.png)
+
+Los Streams, introducidos en Java 8, tienen operadores como `filter()`, `map()`, etc. pero no tenía el operador `takeWhile()`.
+
+![alt Java Stream: Batch](./images/78-JavaStreamBatch.png)
+
+De igual manera, el operador `batch()` tampoco estaba soportado. Sirve cuando tenemos una lista muy grande, digamos de un millón de elementos, y quiero agruparlos en lotes.
+
+Esto ya está soportado en Java 24.
+
+Por eso decimos que los streams de Java eran poderosos, pero no nos daba opciones de extenderlo. Dependíamos del equipo de Java para que creara los operadores.
+
+![alt Java 24 Stream Gatherer](./images/79-Java24StreamGatherer.png)
+
+Finalmente, como parte de Java 24, el equipo de Java ha añadido una característica llamada `Stream Gatherer`.
+
+El `Gatherer` es un interface que necesitamos implementar.
+
+También tenemos el operador `gather()` que acepta la implementación del `Gatherer`.
+
+Con esto, podemos crear nuestro propio operador.
+
+**Map Concurrent**
+
+![alt Java 24 Map Concurrent](./images/80-MapConcurrent.png)
+
+Java 24 ya viene con algunos `gatherers` incorporados. Uno de ellos, `Map Concurrent` es muy interesante porque por debajo usa virtual threads.
+
+Imaginemos que tenemos una lista de URL. No tenemos que mandar la petición HTTP de una en una en el pipeline del Java Stream.
+
+Usando `gather()` y el `gatherer` `Map Concurrent` podemos enviar muchas peticiones concurrentes usando virtual threads.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec07`
+  - `Lec08MapConcurrent`: Ejemplo usando Java Stream Gatherers, gather y Map Concurrent.
+    - Solo funciona para Java 24 o superior.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### Stream Gatherers: What About Nested Concurrent
+
+Añadamos al requerimiento anterior lo siguiente: Lo que hicimos en `Lec04AggregatorDemo`, es decir, por cada `productId` tenemos que obtener `productName` y `rating`.
+
+Esto son llamadas concurrentes anidadas, es decir, por cada `productId` tenemos que hacer dos peticiones.
+
+¿Cómo podemos hacer eso usando `Stream Gatherers`? No existe una solución incorporada, pero podemos implementar la interface `Gatherer` para obtener nuestra propia solución.
+
+Esto lo vemos en el curso `Modern Java: Stream Gatherers & Scalable Concurrency` en las secciones `Concurrency Patterns With Virtual Threads & Stream Gatherers` y `Massive I/O With Virtual Threads & Stream Gatherers`.
+
+### Summary
+
+- Virtual Threads
+  - Geniales para tareas IO para conseguir beneficios no-bloqueantes en segundo plano.
+  - No usar en tareas intensivas de CPU porque no vamos a obtener ningún beneficio.
+  - Se usa un **Thread Per Task** porque son baratos de crear.
+  - **NUNCA POOL**
+- ExecutorService
+  - Un framework sencillo para concurrencia de alto nivel y gestión de threads.
+  - Sometemos la tarea y obtenemos el resultado via un objeto Future.
+  - Para Virtual Thread - Tenemos el executor **Thread-per-task**.
+- ExecutorService con Platform Threads
+  - single / fixed / cached / scheduled / fork-join-pool
+  - Estas implementaciones hacen pool de threads.
+  - NO USAR factory de Virtual Thread porque parece que funciona, pero se hace pool de threads y los virtual threads NO DEBEN hacer pool de threads.
+- ExecutorService con Virtual Threads
+  - Implementaciones disponibles: single / fixed -> usando semáforo + cola
+  - cached -> más o menos lo mismo que thread-per-task
+  - scheduled -> usar platform thread para planificar y virtual thread para ejecutar
+  - fork-join-pool -> No aplica.

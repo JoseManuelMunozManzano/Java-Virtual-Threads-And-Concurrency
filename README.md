@@ -51,11 +51,29 @@ En Java 21, se han añadido `Virtual Threads`:
 - Pero...**¡¡hay truco!!**
   - Los Virtual Threads no son siempre un interruptor mágico para un mejor rendimiento.
 
+Los Virtual threads se usan para "escalabilidad". Escalabilidad es la habilidad de procesar más peticiones concurrentes en un punto donde los platform threads ya no pueden.
+
 Los `Virtual Threads` brillan en ciertas situaciones. Aprenderemos cuando son de ayuda y cuando no deberíamos utilizarlos.
 
 **Estructura del curso - Paso a paso**
 
 ![alt Course Structure](./images/01-CourseStructure.png)
+
+## External Services
+
+[README - External Services](./02-external-services/README.md)
+
+Para ejecutarlo:
+
+- Acceder a la carpeta `02-external-services` y ejecutar `java -jar external-services.jar`
+    - Por defecto se ejecuta en el puerto 7070, pero se puede cambiar a otro puerto, por ejemplo: `java -jar external-services-v2.jar --server.port=6060`
+- Acceder con el navegador a Swagger: http://localhost:7070/swagger-ui/
+
+Veremos esta pantalla:
+
+![alt External Services Page](./images/02-ExternalServices.png)
+
+Es la información sobre los servicios externos con los que tendremos que interaccionar en algunas partes de este curso.
 
 ## Deep Dive Intro Virtual Threads
 
@@ -94,4 +112,33 @@ Ver proyecto `01-virtual-thread-playground`:
 - `util`
     - `CommonUtils`:
         - Método `sleep()`: Vamos a usar mucho Thread.sleep() y no quiero tener que hacer el catch de InterruptedException cada vez.
-        - Método `timer()`: Cuando tarda en ejecutarse un runnable.
+        - Método `timer()`: Cuanto tarda en ejecutarse un runnable.
+
+## Executors and Virtual Threads
+
+[README](./01-virtual-thread-playground/README.md#executors-and-virtual-threads)
+
+Ver proyecto `01-virtual-thread-playground`:
+
+- `sec07`
+    - `Lec01AutoCloseable`: Creamos una implementación de ExecutorService.
+        - Al ejecutar el ejemplo vemos que el main thread somete la tarea y el thread pool-1-thread-1 ejecuta la tarea.
+    - `Lec02ExecutorService`: Se discuten varios tipos de ExecutorService, incluyendo el nuevo Thread Per Task Executor.
+    - `externalservice`: Nuevo paquete donde codificaremos nuestro cliente.
+        - `Client`: Clase cliente que hace peticiones a los servicios externos y obtiene la respuesta.
+    - `aggregator`: Nuevo paquete donde codificaremos nuestro cliente.
+        - `ProductDto`: Record que representa el producto.
+        - `AggregatorService`: La clase agregadora.
+    - `Lec04AggregatorDemo`: Clase main para el ejemplo de aggregator.
+    - `Lec05ConcurrencyLimit`: Vemos las limitaciones de Virtual Threads si queremos usar `newFixedThreadPool` por temas de límites de concurrencia.
+        - Parece que funciona bien, pero...
+        - Una de las características de los Virtual Threads es que se supone que no deben estar en pool.
+        - Pero fixed crea un pool de threads que reutiliza, y, aunque permite un factory, no permite un factory de Virtual Threads.
+    - `concurrencylimit`: Nuevo paquete.
+        - `ConcurrencyLimiter`: Es una utility class que limita la concurrencia basada en un valor entero que se le pasa.
+          - Modificado para proveer una ejecución ordenada (o secuencial) usando una cola.
+    - `Lec06ConcurrencyLimitWithSemaphore`: Corrige el problema que teníamos con el límite de concurrencia y los virtual threads (ver `Lec05ConcurrencyLimit`) usando semáforos.
+        - Ahora vemos que se crean virtual threads distintos (no un pool) y no se reutilizan.
+    - `Lec07ScheduledExecutorWithVirtualThreads`: Como no se puede usar directamente un schedulecExecutor con virtual threads, hacemos que un platform thread delegue la tarea a un virtual thread.
+    - `Lec08MapConcurrent`: Ejemplo usando Java Stream Gatherers, gather y Map Concurrent.
+        - Solo funciona para Java 24 o superior.
