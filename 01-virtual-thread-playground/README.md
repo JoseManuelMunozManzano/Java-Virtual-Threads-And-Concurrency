@@ -1349,3 +1349,230 @@ Esto lo vemos en el curso `Modern Java: Stream Gatherers & Scalable Concurrency`
   - cached -> más o menos lo mismo que thread-per-task
   - scheduled -> usar platform thread para planificar y virtual thread para ejecutar
   - fork-join-pool -> No aplica.
+
+## Asynchronous Programming with CompletableFuture
+
+### CompletableFuture: Introduction
+
+- Introducido en Java 8 para tratar con programación asíncrona y concurrente.
+  - Provee una forma limpia y expresiva de trabajar con tareas asíncronas, gestión de errores y resultados combinados. 
+- Similar a las `promises` de `JavaScript`.
+- Programación asíncrona en estilo declarativo.
+
+¿Tiene sentido aprender `CompletableFuture` si tenemos virtual threads? Ya puedo escribir código en estilo síncrono bloqueante y mi virtual thread hará por detrás todo el I/O en estilo no-bloqueante.
+
+Algunas veces no vamos a poder escribir código en estilo síncrono bloqueante.
+
+![alt Aggregator Example](./images/81-AggregatorExample.png)
+
+Por ejemplo, ya codificamos antes este ejemplo de `aggregator`. Aquí necesitamos hacer dos llamadas y unir sus resultados en una respuesta combinada.
+
+Esto no lo hicimos secuencialmente uno a uno porque hubiera tomado dos segundos en vez de uno. Lo que hicimos fue dos llamadas en paralelo, pero **sin gestión de errores**. Asumimos el escenario de camino feliz.
+
+¿Qué pasa si el servicio product falla, o el de rating? ¿O si el servicio de rating es muy lento?
+
+Necesitamos hacer nuestro código más robusto y para ello necesitamos mejores herramientas.
+
+Aprender `CompletableFuture` tiene sentido porque provee una buena forma de gestionar errores. Además, como tiene muchos años de existencia, hay mucho código que lo usa.
+
+Así que, en vez de sustituir el código, podemos sencillamente hacer que `CompletableFuture` funcione con virtual threads.
+
+- Tenemos `Future<T>`.
+  - Cuando sometemos una tarea al executor service, obtenemos un objeto Future (Future es una interface).
+- `CompletableFuture` es una clase que implementa la interface `Future<T>`.
+  - Esta clase provee **muchos** métodos para encadenar, gestionar errores, combinar resultados, etc.
+  - Podemos **extender** la clase `CompletableFuture` para sobreescribir su comportamiento, o añadir más métodos si queremos.
+
+- Por defecto `CompletableFuture` usa `fork-join-pool`.
+  - Para tareas I/O, acepta un Executor. Como parte de Java 21 podemos usar un executor virtual-thread-per-task
+
+**Requerimientos**
+
+Para ver como funciona `CompletableFuture` vamos a tomar este sencillo requerimiento y a implementarlo usando `CompletableFuture`:
+
+- Llamar al servicio remoto para obtener el nombre de usuario.
+  - Saludar al usuario con `"HELLO " + name.toUpperCase()`.
+  - En caso de cualquier problema/excepción, solo decir `"Hey User...!`.
+- El servicio remoto puede ser lento ocasionalmente. No esperar por más de un segundo.
+  - Si el servicio es lento, solo indicar `"Oops... the service is slow"`.
+- Devolver los mensajes indicados arriba como `"result"`.
+- Luego añadir la hora actual en este formato:
+  - `result + " - " + LocalTime.now()`.
+
+La codificación de este requerimiento será algo así:
+
+![alt CompletableFuture Example](./images/82-CompletableFutureExample.png)
+
+El código indicado en la parte izquierda usa `CompletableFuture` y el código indicado en la parte derecha NO usa `CompletableFuture`.
+
+Parece claro que es mucho más legible el código que usa `CompletableFuture`. Es un estilo declarativo fácil de leer.
+
+El código que no usa `CompletableFuture` es de más bajo nivel mientras que el que lo usa tiene un nivel de abstracción más alto que expresa las reglas de negocio. Expresamos el resultado que queremos en un estilo funcional.
+
+**Familiar vs Readable**
+
+- Familiar
+  - Comprendemos y podemos trabajar con ese código porque hemos visto código o patrones similares antes. La familiaridad viene de la experiencia, entrenamiento, etc. Cuando el código es familiar, lo encontramos más fácil de leer, mantener y modificar.
+- Readable
+  - Cómo de fácil podemos comprender un trozo de código incluso aunque NO estemos familiarizados con el patrón. Un código legible está bien estructurado, autodocumentado.
+  - Expresamos el resultado con abstracciones de alto nivel.
+
+**Is CompletableFuture Reactive?**
+
+- ¡NO!
+- La programación asíncrona con `CompletableFuture` NO ES LO MISMO que la programación reactiva.
+
+Ahora vamos a centrarnos en ver como usar `CompletableFuture` con virtual threads.
+
+### CompletableFuture: Internal Mechanics
+
+Vamos a ver rápidamente como funciona `CompletableFuture` a alto nivel.
+
+![alt CompletableFuture 1](./images/83-CompletableFuture1.png)
+
+Tenemos dos métodos.
+
+En un estilo de programación síncrono bloqueante tradicional, el método 1 llamará al método 2 y este devolverá el resultado. Es lo que hemos hecho siempre y es fácil de entender.
+
+![alt CompletableFuture 2](./images/84-CompletableFuture2.png)
+
+En el mundo de `CompletableFuture`, en vez de enviar el resultado directamente, ponemos el resultado en una caja y devolvemos la caja al método 1.
+
+¿Por qué ponemos el resultado en una caja en vez de sencillamente enviar el resultado directamente?
+
+Si el método 2 puede devolver el resultado casi inmediatamente, tan pronto como se le llame devuelve el resultado, entonces devolverlo inmediatamente tiene todo el sentido del mundo.
+
+Pero imaginemos que el método 2 es una tarea IO que tarda bastante en completarse:
+
+![alt CompletableFuture 3](./images/85-CompletableFuture3.png)
+
+El método 1 llama al método 2. El método 2 NO tiene nada que devolver porque sigue trabajando en la tarea.
+
+El método 1 tiene que esperarse mientras no llegue ninguna respuesta.
+
+![alt CompletableFuture 4](./images/86-CompletableFuture4.png)
+
+En vez de hacer que el método 1 espere, lo que podemos hacer es que el método 2 devuelva un objeto `CompletableFuture` inmediatamente.
+
+Es decir, tan pronto como el método 1 llama al método 2, este le devuelve algo inmediatamente. Ese algo, tenemos que verlo como un pipe, un tunel a través del cual el método 2, cuando se complete, enviará el resultado.
+
+![alt CompletableFuture 5](./images/87-CompletableFuture5.png)
+
+De nuevo, el método 1 llama al método 2 y este, inmediatamente, devuelve un objeto `CompletableFuture` y sigue trabajando en la respuesta. Esa respuesta, cuando la genere, la enviará el método 2 a través del `CompletableFuture` (ese pipe).
+
+Mientras tanto, el método 1 no está bloqueado y puede hacer otras cosas.
+
+### Demo: Basic CompletableFuture
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `Lec01SimpleCompletableFuture`: Ejemplo de uso de un `CompletableFuture`.
+    - El objetivo principal de este ejemplo es ser un escaparate de como un método 2 puede enviar el resultado a otro método 1 sin hacer que el método 1 espere para siempre.
+
+### Async Tasks: runAsync()
+
+En esta clase hablamos del método `runAsync()` de `CompletableFuture`.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `Lec02RunAsync`: Ejemplo de uso del método `runAsync()` de `CompletableFuture`. En concreto vemos:
+    - Factory methods, como `runAsync()`, para crear `CompletableFuture` en vez de usar el operador new.
+    - El método `runAsync()` ejecuta las tareas de manera asíncrona, devolviendo void, pero es bloqueante.
+    - Usamos un `Executor` para utilizar virtual threads, haciendo la ejecución no bloqueante.
+
+### Async Tasks: supplyAsync()
+
+Al igual que con `runAsync()` podemos suministrar valores asíncronamente.
+
+Esto es parecido a lo que se hizo en `Lec01SimpleCompletableFuture` en los métodos `fastTask()` y `slowTask()` donde nosotros creamos los objetos `CompletableFuture` y virtual thread, se hicieron tareas y devolvimos el resultado al thread main.
+
+Con `supplyAsync()` usamos un factory method para simplificar la forma en la que hacemos esto.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `Lec03SupplyAsync`: Ejemplo de uso del método `supplyAsync()` de `CompletableFuture`. En concreto vemos:
+    - Podemos suministrar valores asíncronamente.
+    - Factory Method
+    - Executor
+
+### Practical Example: Fetching Product Info
+
+En una clase anterior de `sec07`, `Lec03AccessResponseUsingFuture`, intentábamos obtener información de 3 productos usando `ExecutorService`.
+
+Ahora vamos a hacerlo usando `CompletableFuture.supplyAsync()`.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `externalservice`: Nuevo paquete donde codificaremos nuestro cliente.
+    - `Client`: Clase cliente que hace peticiones a los servicios externos y obtiene la respuesta.
+  - `Lec04GetProducts`: Es el mismo ejemplo que hicimos en `Lec03AccessResponseUsingFuture`, pero ahora usando `supplyAsync()`.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### CompletableFuture: Error Handling
+
+En una clase anterior de `sec07`, `Lec04AggregatorDemo`, hacíamos llamadas para obtener el producto y luego para obtener su rating, devolviendo `productDto`, usando `ExecutorService`.
+
+Ahora vamos a hacerlo usando `CompletableFuture.supplyAsync()`.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `aggregator`: Nuevo paquete donde codificaremos nuestro cliente con gestión de errores (devolvemos un valor por defecto en caso de excepción).
+    - `ProductDto`: Record que representa el producto.
+    - `AggregatorService`: La clase agregadora.
+  - `Lec05AggregatorDemo`: Clase main para el ejemplo de aggregator. El objetivo es probar la gestión de errores de `CompletableFuture`.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### CompletableFuture: Handling Timeouts
+
+Usando `CompletableFuture` podemos establecer un timeout para la ejecución asíncrona.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `aggregator`
+    - `AggregatorService`: Lo modificamos para establecer un timeout. 
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### Combining Futures: allOf()
+
+En la clase anterior de `sec07`, `Lec04AggregatorDemo`, intentábamos acceder a la vez a 50 productos, haciendo múltiples llamadas en paralelo.
+
+Ahora vamos a hacerlo usando `CompletableFuture.allOf()`.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `Lec06AllOf`: Ejemplo de uso del método `allOf()` de `CompletableFuture`.
+
+Para probar este ejemplo, tiene que estar ejecutándose `external-services.jar`.
+
+### Combining Futures: anyOf()
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `Lec07AnyOf`: Ejemplo de uso del método `anyOf()` de `CompletableFuture`.
+
+### Combining Futures: thenCombine()
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec08`
+  - `Lec08ThenCombine`: Ejemplo de uso de los métodos `thenCombine()` y `thenApply()` de `CompletableFuture`.
+
+### Section Summary and Key Takeaways
+
+- `CompletableFuture`
+  - Es una herramienta/clase poderosa que implementa `Future<T>` con muchos métodos útiles para procesar, combinar resultados, gestionar errores en un estilo funcional.
+  - Usa fork-join-pool para tareas asíncronas.
+  - Desde Java 21, podemos usar el executor virtual-thread-per-task para tareas IO.
+  - Limitación
+    - Implementa `Future`. Pero el método **cancel** NO interrumpe el thread que está ejecutando la tarea.

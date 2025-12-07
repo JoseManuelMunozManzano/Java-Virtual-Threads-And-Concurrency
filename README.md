@@ -142,3 +142,31 @@ Ver proyecto `01-virtual-thread-playground`:
     - `Lec07ScheduledExecutorWithVirtualThreads`: Como no se puede usar directamente un schedulecExecutor con virtual threads, hacemos que un platform thread delegue la tarea a un virtual thread.
     - `Lec08MapConcurrent`: Ejemplo usando Java Stream Gatherers, gather y Map Concurrent.
         - Solo funciona para Java 24 o superior.
+
+## Asynchronous Programming with CompletableFuture
+
+[README](./01-virtual-thread-playground/README.md#asynchronous-programming-with-completablefuture)
+
+Ver proyecto `01-virtual-thread-playground`:
+
+- `sec08`
+    - `Lec01SimpleCompletableFuture`: Ejemplo de uso de un `CompletableFuture`.
+        - El objetivo principal de este ejemplo es ser un escaparate de como un método 2 puede enviar el resultado a otro método 1 sin hacer que el método 1 espere para siempre.
+    - `Lec02RunAsync`: Ejemplo de uso del método `runAsync()` de `CompletableFuture`.
+        - Factory methods, como `runAsync()`, para crear `CompletableFuture` en vez de usar el operador new.
+        - El método `runAsync()` ejecuta las tareas de manera asíncrona, devolviendo void, pero es bloqueante.
+        - Usamos un `Executor` para utilizar virtual threads, haciendo la ejecución no bloqueante.
+    - `Lec03SupplyAsync`: Ejemplo de uso del método `supplyAsync()` de `CompletableFuture`. En concreto vemos:
+        - Podemos suministrar valores asíncronamente.
+        - Factory Method
+        - Executor
+    - `externalservice`: Nuevo paquete donde codificaremos nuestro cliente.
+        - `Client`: Clase cliente que hace peticiones a los servicios externos y obtiene la respuesta.
+    - `Lec04GetProducts`: Es el mismo ejemplo que hicimos en `Lec03AccessResponseUsingFuture`, pero ahora usando `supplyAsync()`.
+    - `aggregator`: Nuevo paquete donde codificaremos nuestro cliente con gestión de errores (devolvemos un valor por defecto en caso de excepción) y timeout.
+        - `ProductDto`: Record que representa el producto.
+        - `AggregatorService`: La clase agregadora.
+    - `Lec05AggregatorDemo`: Clase main para el ejemplo de aggregator. El objetivo es probar la gestión de errores de `CompletableFuture`.
+    - `Lec06AllOf`: Ejemplo de uso del método `allOf()` de `CompletableFuture`.
+    - `Lec07AnyOf`: Ejemplo de uso del método `anyOf()` de `CompletableFuture`.
+    - `Lec08ThenCombine`: Ejemplo de uso de los métodos `thenCombine()` y `thenApply()` de `CompletableFuture`.
