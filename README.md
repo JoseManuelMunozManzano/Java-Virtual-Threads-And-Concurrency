@@ -170,3 +170,33 @@ Ver proyecto `01-virtual-thread-playground`:
     - `Lec06AllOf`: Ejemplo de uso del método `allOf()` de `CompletableFuture`.
     - `Lec07AnyOf`: Ejemplo de uso del método `anyOf()` de `CompletableFuture`.
     - `Lec08ThenCombine`: Ejemplo de uso de los métodos `thenCombine()` y `thenApply()` de `CompletableFuture`.
+
+## Thread Local & Scoped Values
+
+[README](./01-virtual-thread-playground/README.md#thread-local--scoped-values)
+
+Ver proyecto `01-virtual-thread-playground`:
+
+- `sec09`
+    - `Lec01ThreadLocal`: Ejemplo de uso de `ThreadLocal` para ver funcionamiento y problemas que pueden surgir.
+    - `Lec02InheritableThreadLocal`: Ejemplo de cuando usar `InheritableThreadLocal`.
+    - `security`: Nuevo paquete.
+        - `UserRole`: Es un enum con los posibles roles de un usuario que se conecta a nuestra aplicación.
+        - `SecurityContext`: Es un record que contiene el usuario actualmente conectado.
+        - `threadlocal`: Nuevo paquete. Lo creamos porque luego vamos a hacer el mismo ejemplo usando `ScopedValues`.
+            - `SecurityContextHolder`: Clase que permite obtener la información de un usuario conectado usando `ThreadLocal`.
+            - `AuthenticationService`: Clase que sirve para hacer login y establecer el valor de `SecurityContext`.
+        - `scopedvalue`: Nuevo paquete
+            - `SecurityContextHolder`: Clase que permite obtener la información de un usuario conectado usando `ScopedValue`.
+            - `AuthenticationService`: Clase que sirve para hacer login y establecer el valor de `SecurityContext`.
+                - Modificado para, temporalmente, elevar los privilegios del rol de usuario.
+    - `controller`: Nuevo paquete.
+        - `DocumentController`: Simula un Rest Controller al que llegan peticiones de conexiones de usuarios.
+    - `Lec03DocumentAccessWithThreadPool`: Clase que llama a `controller/DocumentController` para validar su funcionamiento.
+    - `Lec04ScopedValue`: Demo para ver como se usan los `ScopedValues`.
+    - `Lec05ScopedValueAssignment`: Lo que hicimos en el fuente `Lec01ThreadLocal` modificarlo para que funcione con `ScopedValue`.
+    - `Lec06ScopedValueRebinding`: Es como `Lec05ScopedValueAssignment` pero además usando rebinding.
+        - El objetivo es proveer un token diferente para `productService`, pero sin que afecte a `inventoryService`.
+    - `Lec07DocumentAccessWithScopedValue`: Clase que llama a `controller/DocumentController` para validar su funcionamiento.
+        - Como `Lec03DocumentAccessWithThreadPool`, pero usando el paquete `scopedvalue`. No hay que cambiar nada más.
+        - Modificado para, temporalmente, elevar los privilegios del rol de usuario.

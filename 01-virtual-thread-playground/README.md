@@ -1576,3 +1576,367 @@ En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
   - Desde Java 21, podemos usar el executor virtual-thread-per-task para tareas IO.
   - Limitación
     - Implementa `Future`. Pero el método **cancel** NO interrumpe el thread que está ejecutando la tarea.
+
+## Thread Local & Scoped Values
+
+### ThreadLocal: Introduction & Basics
+
+- ThreadLocal es como un locker / espacio de almacenamiento para cada thread.
+- Cada thread puede almacenar y acceder a su valor independientemente de los otros threads.
+
+![alt Thread Local](./images/88-ThreadLocalLocker.png)
+
+ThreadLocal trabaja tanto con platform threads como con virtual threads.
+
+**From Thread Local to Scoped Values**
+
+- ThreadLocal (JDK 1.2 - 1998)
+  - Una manera inteligente de almacenar data que pertenece solo a ese thread.
+- ScopedValue (JDK 25 - 2025)
+  - Es la misma idea que ThreadLocal, pero en un formato estructurado y seguro.
+
+Es conveniente aprender tanto ThreadLocal como ScopedValues.
+
+**ThreadLocal**
+
+Vamos a ver qué es un ThreadLocal a alto nivel.
+
+![alt Thread Local 1](./images/89-ThreadLocal1.png)
+
+ThreadLocal es como un Map. En un Map se guarda un par clave-valor.
+
+La clave es el current thread y vemos en la parte del código (modelo conceptual simplificado, no la implementación real) que existen algunos métodos importantes como set, get, remove...
+
+Cuando se usa el método set para almacenar algún valor, vemos que la clave es el current thread y se almacena el valor.
+
+Y, cuando se usa el método get, usamos el Map para devolver el valor para el current thread.
+
+Por último, el método remove eliminará el valor almacenado para el current thread.
+
+![alt Thread Local 2](./images/90-ThreadLocal2.png)
+
+Usando esta estructura de datos (`sessionStorage`), cuando recibimos en nuestra aplicación muchas peticiones concurrentes, los thread 1 y thread 2 puede almacenar el sessionId.
+
+Como los threads son diferentes, cada thread tendrá su propio espacio y ambos pueden almacenar sus valores sin que se afecten entre ellos.
+
+Al invocar el método get, dependiendo del thread que ejecute el método get, devolverá el valor correspondiente.
+
+**Pros & Cons**
+
+- Ventajas:
+  - No hay necesidad de pasar data usando parámetros en la llamada a métodos.
+    - La data que pertenece al flujo de ejecución de todo el thread (por ejemplo request ID, contexto de seguridad, contexto de transacción) puede almacenarse en ThreadLocal y accederse desde cualquier lugar de ese thread.
+
+![alt Thread Local 3](./images/91-ThreadLocal3.png)
+
+ThreadLocal se usa muchísimo en frameworks como Spring Boot y otras librerías.
+
+![alt Thread Local 4](./images/92-ThreadLocal4.png)
+
+Por ejemplo, imaginemos una aplicación Spring Boot como la de la imagen. El primer rectángulo gris sería un WebFilter, el segundo un Controller, el tercero una clase de servicio, etc.
+
+Cuando recibimos la petición, esta será asignada a un thread. Lo llamamos thread-1.
+
+Como parte del WebFilter, validaremos las credenciales de usuario, generaremos un token y lo almacenaremos en un ThreadLocal (esto por debajo).
+
+Luego, podemos acceder a la información de usuario que ha iniciado sesión en nuestro controller, nuestra clase de servicio, etc.
+
+Spring, por debajo, inyecta esa información usando ThreadLocal.
+
+Este es otro caso de uso típico:
+
+- Algunos objetos NO son thread-safe y a la vez son caros de crear.
+  - ObjectMapper (en versiones antiguas)
+    - ObjectMapper es la biblioteca Jackson.
+  - El uso de `synchronized` para hacerlo thread-safe puede perjudicar el rendimiento porque los threads tienen que esperar para acceder al objeto.
+
+En este caso también puede usarse ThreadLocal. Es decir, cada thread tendrá su propio ObjectMapper. Todos los threads crearán solo una vez el ObjectMapper y reusarán ese objeto en toda la aplicación.
+
+![alt Thread Local 5](./images/93-ThreadLocal5.png)
+
+- Desventajas:
+    - Defectos de diseño.
+      - Es mutable.
+        - Usando el método set, el current thread puede sobreescribir el valor y, en algunos casos, llevar a problemas.
+      - Un objeto en ThreadLocal puede vivir para siempre incluso aunque no se use (no garbage collector), si no se invoca el método remove o si no muere el thread.
+        - Esto es un problema particularmente en thread pools fijos, porque reutilizamos los threads. Si no usamos el método remove, esto puede llevar a fugas de data, fugas de memoria, etc.
+        - Por ejemplo: fixed thread pool - 500
+      - Un thread puede crear threads hijos para acelerar el procesamiento de la petición, como hicimos en clases anteriores obteniendo tanto información del producto como de su rating. En estos casos, los threads hijos no pueden acceder a los valores del thread padre, porque en ThreadLocal los valores están asociados al objeto thread (threads hijos y padre son distintos objetos)
+        - Sí, como parte de los requerimientos, pensamos que un thread hijo necesita acceder a los valores del objeto thread padre desde ThreadLocal, existe una implementación especial. Se llama Inheritable Thread Local.
+        - Lo que hace es que, cuando un thread 1 crea threads hijos (por ejemplo, en la imagen, el thread-3 y thread-4), por debajo, intentará copiar y asociar para thread hijos.
+        - Esta operación es muy cara.
+    - La gente no entiende bien ThreadLocal y lo usan como cualquier otro objeto.
+      - Debería usarse como **static final** - pero la gente hace mal uso de ThreadLocal.
+      - El código que se ve en la imagen de abajo es erróneo. Los desarrolladores lo crean en un método y lo pasan como parámetro a otro metodo.
+      - Ese código compila y se ejecuta correctamente, pero no es así como debe usarse ThreadLocal.
+
+- ![alt Thread Local 6](./images/94-ThreadLocal6.png)
+
+### Demo: ThreadLocal Usage
+
+En esta clase vamos a jugar con ThreadLocal para comprenderlo mejor.
+
+![alt Thread Local](./images/92-ThreadLocal4.png)
+
+Vamos a simular algo como lo que muestra la imagen.
+
+Cuando recibimos una petición, vamos a autenticarnos, almacenando un token en ThreadLocal.
+
+Luego, intentaremos obtener este token en el controller, una clase de servicio, etc.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `Lec01ThreadLocal`: Ejemplo de uso de `ThreadLocal` para ver funcionamiento y problemas que pueden surgir.
+
+### Inheritable ThreadLocal: When to Use
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `Lec02InheritableThreadLocal`: Ejemplo de cuando usar `InheritableThreadLocal`.
+
+### ThreadLocal Limitations & Golden Rules
+
+Existen artículos antiguos indicando peligros de usar `ThreadLocal`, y debido a esto muchos desarrolladores creen que usar `ThreadLocal` en su proyecto es una mala idea.
+
+**Is ThreadLocal Bad?**
+
+- NO.
+- Los problemas aparecen cuando los **desarrolladores lo usan sin disciplina**.
+  - Debemos llamar el método **remove**.
+  - El método **set** muta el valor, lo que puede llevar a un comportamiento inesperado si partes diferentes del thread lo sobreescribe.
+
+**Golden Rules**
+
+- No exponer `ThreadLocal` directamente.
+  - Envolverlo siempre en una clase helper o holder.
+- Mantener privados los métodos de mutación (o package-private).
+  - Solo código confiable debe llamar a `set()` o `remove()`.
+- `set()` y `remove()` deben aparecer juntos siempre.
+  - Nunca ejecutar `set()` sin `remove()`.
+  - El método que ejecuta el `set()` del valor debería ejecutar también `remove()` y debería ser un método `private`.
+- Usar `ThreadLocal` solo para preocupaciones transversales / datos no funcionales.
+  - Por ejemplo, contexto de seguridad, solicitar metadatos, observabilidad, información de rastreo.
+
+### ThreadLocal Workflow: Implementation
+
+Vamos a ver como aplicar `ThreadLocal` en proyectos del mundo real, usando las `Golden Rules` vistas en la clase anterior.
+
+![alt DocumentController](./images/95-DocumentController.png)
+
+Vamos a tener un `DocumentController` con métodos `read()`, `edit()`, `delete()`.
+
+Vamos a tener `UserRole` como `ADMIN`, `EDITOR`, `VIEWER` y `ANONYMOUS`.
+
+Dependiendo del rol del usuario conectado, daremos acceso a los métodos correspondientes. Por ejemplo, el método `delete()` solo podrá ser invocado por un `ADMIN`.
+
+Pero lo importante es como estructurar `ThredLocal` en proyectos reales.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `security`: Nuevo paquete.
+    - `UserRole`: Es un enum con los posibles roles de un usuario que se conecta a nuestra aplicación.
+    - `SecurityContext`: Es un record que contiene el usuario actualmente conectado.
+    - `threadlocal`: Nuevo paquete. Lo creamos porque luego vamos a hacer el mismo ejemplo usando `ScopedValues`.
+      - `SecurityContextHolder`: Clase que permite obtener la información de un usuario conectado usando `ThreadLocal`.
+      - `AuthenticationService`: Clase que sirve para hacer login y establecer el valor de `SecurityContext`.
+  - `controller`: Nuevo paquete.
+    - `DocumentController`: Simula un Rest Controller al que llegan peticiones de conexiones de usuarios.
+
+### Demo: ThreadLocal Workflow in Action
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `Lec03DocumentAccessWithThreadPool`: Clase que llama a `controller/DocumentController` para validar su funcionamiento.
+
+### Scoped Values: Introduction & Basics
+
+Los `ScopedValues` son una forma infalible de compartir el contexto.
+
+¿Por qué los crearon cuando ya teníamos `ThreadLocal`? Con la introducción de los virtual threads, el equipo Java pide a los desarrolladores que creen un nuevo thread, que se ejecute el runnable y dejar que el thread muera. No hay necesidad de hacer pool de los threads. Por tanto, el modelo de ejecución ha cambiado.
+
+- Introducido en JDK 25.
+- Es una forma segura, predecible y eficiente para adjuntar datos con alcance de ejecución (execution-scoped data) sin depender de la disciplina del desarrollador.
+  - `ThreadLocal` sigue funcionando, pero la gestión de su ciclo de vida es manual (set/remove).
+  - `ScopedValue` gestiona automáticamente su ciclo de vida.
+- Es preferible usar `ScopedValues` sobre `ThreadLocal`, especialmente con muchos virtual threads.
+
+**Como usar `ScopedValues` y por qué son ahora los preferidos**
+
+- Paso 1: Generar la key
+  - **ScopedValue.newInstance()**
+    - Devuelve un objeto key nuevo e inmutable.
+    - Key es usado para almacenamiento con ámbito de ejecución (execution-scoped)
+  - Puede llamarse a `ScopedValue.newInstance()` varias veces para crear diferentes keys.
+    ```java
+    // Crea una key inmutable
+    static final ScopedValue<String> SESSION_TOKEN = ScopedValue.newInstance();
+    ```
+- Paso 2: Enlazar un valor
+  - **ScopedValue.where(KEY, value)**
+    - Enlaza el valor a la ejecución del current thread usando el objeto Key.
+    ```java
+    ScopedValue.where(SESSION_TOKEN, "session-123")
+        .run(runnable);
+    ```
+- Paso 3: Acceder al valor
+  - **KEY.get()**
+    - Para leer el valor durante la ejecución del current thread.
+  - Trabaja dentro del runnable o de cualquier método llamado desde el runnable.
+  - El valor se límpia automáticamente tras `.run()`.
+    ```java
+    ScopedValue.where(SESSION_TOKEN, "session-123")
+        .run(() -> {
+            var token = SESSION_TOKEN.get();
+            log.info("token: {}", token);    
+        });
+    ```
+
+**Resumen rápido**
+- Los valores están atados al current thread justo antes de que comience el runnable (o callable).
+- Los valores dejan de estar atados de forma automática cuando el runnable (o callable) se completa.
+  - La gestión del ciclo de vida set y remove son manejados automáticamente dentro del runnable (o callable).
+  - **No es necesaria una limpieza manual**
+- Esto asegura que no haya fugas, ni reutilizaciones accidentales, ni mutación de la data almacenada.
+
+![alt Execution Scoped](./images/96-ExecutionScoped.png)
+
+Por eso se le llama `execution-scoped`, porque solo está disponible para ese runnable (o callable), no fuera de él.
+
+Los `ScopedValue` funcionan tanto con platform threads como con virtual threads.
+
+**Reading Scoped Values**
+
+![alt Reading Scoped Values](./images/97-ReadingScopedValues.png)
+
+Usando la key, podemos comprobar, usando el método `isBound()`, si hay algún valor adjunto al current thread.
+
+En vez del método `get()`, podemos usar el método `orElse()` si queremos devolver un valor por defecto, en caso de que no haya ningún valor asociado a la key.
+
+Si queremos lanzar una excepción, podemos usar el método `orElseThrow()`. En el ejemplo, `SESSION_TOKEN` debe existir, en caso contrario lanzaremos una excepción.
+
+### Demo: Scoped Value Usage
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `Lec04ScopedValue`: Demo para ver como se usan los `ScopedValues`.
+
+No olvidar que necesitamos JDK 25 o superior.
+
+### Applying Scoped Values
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `Lec05ScopedValueAssignment`: Lo que hicimos en el fuente `Lec01ThreadLocal` modificarlo para que funcione con `ScopedValue`.
+
+### Scoped Values: Rebinding & Immutability
+
+- A los `ScopedValues` se les puede reasignar temporalmente un nuevo valor (rebound) en un ámbito anidado.
+  - El valor externo es temporalmente reemplazado durante el tiempo que dure el ámbito interno.
+  - Cuando ese ámbito termina, el valor original es restaurado automáticamente.
+
+![alt Scoped Values - Rebinding](./images/98-ScopedValuesRebinding.png)
+
+Como parte de `Lec01ThreadLocal`, usando `ThreadLocal`, intentamos hacer lo mismo. Dentro de `orderService()`, si queríamos establecer un token de sesión diferente, ejecutábamos un `set()` de forma que `callProdutService()` utilizara un valor distinto. El problema es que también afectaba a `callInventoryService()`. Esto se puede hacer funcionar con `ThreadLocal`, pero tenemos que restablecer el valor anterior a mano.
+
+Con `ScopedValue` el restablecimiento del valor se hace automáticamente.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `Lec06ScopedValueRebinding`: Es como `Lec05ScopedValueAssignment` pero además usando rebinding.
+    - El objetivo es proveer un token diferente para `productService`, pero sin que afecte a `inventoryService`.
+
+### Scoped Values: How It Works Internally
+
+Vamos a ver como funciona `ScopedValue` internamente. Esto es importante porque puede ser mal utilizado y, en algunos casos raros, si no se diseña apropiadamente, podría afectar al rendimiento.
+
+![alt Scoped Values - Internally 1](./images/99-ScopedValueInternally1.png)
+
+Podemos atar (bind) varios pares key-value en `ScopedValue` tal y como aparece en la imagen, y, dentro del runnable, podemos acceder a sus valores, usando `KEY1.get()`, `KEY2.get()`, etc.
+
+Pero, ¿cómo funciona esto internamente?
+
+![alt Scoped Values - Internally 2](./images/100-ScopedValueInternally2.png)
+
+Existe una clase llamada `Carrier` cuyo fuente es más o menos como se indica en la imagen. Almacena una key, su valor correspondiente y mantiene la referencia al objeto carrier previo.
+
+Al usar `.where(KEY1, "value-1")` se crea una nueva instancia de `Carrier`, que podemos ver a la derecha de la imagen. En este caso, la referencia al carrier previo es null porque es el primer objeto carrier que se crea.
+
+![alt Scoped Values - Internally 3](./images/101-ScopedValueInternally3.png)
+
+Cuando encadenamos varios pares key-value (hasta 100 en la imagen), por debajo se crea una lista enlazada.
+
+Cuando se ejecuta `.run(runnable)`, en ese momento, el objeto carrier más reciente, en nuestro ejemplo `KEY100` se vinculará con el current thread, durante la ejecución de ese runnable.
+
+![alt Scoped Values - Internally 4](./images/102-ScopedValueInternally4.png)
+
+Ahora, dentro del runnable, cuando indicamos `KEY2.get()`, tiene que iterar uno a uno hasta que encuentra esa `KEY2`.
+
+Mirar el pseudocódigo del método get(), donde `topCarrier` es `KEY100`. Si no es null y la key no es `KEY2` coge el objeto carrier previo.
+
+Volverá a comprobar hasta que el objeto carrier sea null o la key del carrier sea `KEY2`, devolviendo entonces su valor.
+
+Como podemos ver, a más keys añadidas, más tarda la búsqueda. No va a ser algo común añadir miles o millones de keys, pero `ScopedValue` se puede usar mal si no se comprende como funciona internamente.
+
+El equipo de Java nos permite encadenar varias keys, pero no debemos pasarnos.
+
+![alt Scoped Values - Internally 5](./images/103-ScopedValueInternally5.png)
+
+El consejo aquí es no encadenar varias keys si no es realmente necesario.
+
+- Crear un record como el de la imagen.
+- Crear una key para ese record.
+- Atar (bind) la instancia de `SessionData`.
+- Dentro del runnable, usar la key para obtener la instancia.
+- Y ya podemos acceder al sessionId, userId, lo que sea que se almacene.
+
+### Scoped Values Workflow: Implementation
+
+En una clase anterior, usando `ThreadLocal`, creamos `Lec03DocumentAccessWithThreadPool`. Como parte de ese proyecto, creamos los paquetes `controller` y `security`, y dentro de `security` creamos un paquete `threadlocal`.
+
+Vamos a rehacer ese proyecto usando `ScopedValue` en vez de `ThreadLocal`.
+
+En `src/java/com/jmunoz` creamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `security`
+    - `scopedvalue`: Nuevo paquete
+      - `SecurityContextHolder`: Clase que permite obtener la información de un usuario conectado usando `ScopedValue`.
+      - `AuthenticationService`: Clase que sirve para hacer login y establecer el valor de `SecurityContext`.
+  - `Lec07DocumentAccessWithScopedValue`: Clase que llama a `controller/DocumentController` para validar su funcionamiento.
+    - Como `Lec03DocumentAccessWithThreadPool`, pero usando el paquete `scopedvalue`. No hay que cambiar nada más.
+
+### Scoped Values In Action: Run As Administrator
+
+Hasta ahora, hemos visto como funcionan conceptualmente los `ScopedValue`, como atar (bind), acceder y desatar (unbind) valores.
+
+Ahora vamos a aplicarlo a un escenario práctico.
+
+Imaginar que un usuario se conecta con un role normal, pero para una operación específica queremos que temporalmente se eleven sus privilegios a administrador. Luego, automáticamente se revierten los privilegios al estado anterior.
+
+Algo parecido a esto ocurre en los sistemas operativos. Por ejemplo, en Windows existe `Run ad administrator` y en MacOS y Linux tenemos `sudo`.
+
+Es en estos tipos de requerimientos donde brilla `ScopedValue`.
+
+En `src/java/com/jmunoz` modificamos los paquetes/clases siguientes:
+
+- `sec09`
+  - `security`
+    - `scopedvalue`: Nuevo paquete
+      - `AuthenticationService`: Modificado para, temporalmente, elevar los privilegios del rol de usuario.
+  - `Lec07DocumentAccessWithScopedValue`: Modificado para, temporalmente, elevar los privilegios del rol de usuario.
+
+### ThreadLocal vs Scoped Values
+
+![alt ThreadLocal vs ScopedValue](./images/104-ThreadLocalVsScopedValue.png)
+
+- Thread scoped significa que los valores viven solo en el thread que establece dichos valores.
+- Execution scoped significa que los valores viven solo para el runnable (o callable) con el que se les asocia.
+- Hablaremos de **Structured Concurrency** en una de las secciones que todavía quedan.
+- Por último, no olvidar que si estamos usando JDK 25 o superior, el equipo de Java recomienda usar `ScopedValue`.
