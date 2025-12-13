@@ -1,0 +1,73 @@
+{
+	"info": {
+		"_postman_id": "0e47538c-7ed0-4079-acb8-d0312fce9280",
+		"name": "VirtualThreads",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "7508044",
+		"_collection_link": "https://interstellar-astronaut-770196.postman.co/workspace/ReactivePath~33ab469b-bfa8-48f7-a344-7efa35b2139f/collection/7508044-0e47538c-7ed0-4079-acb8-d0312fce9280?action=share&source=collection_link&creator=7508044"
+	},
+	"item": [
+		{
+			"name": "trip-plan",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": ""
+				},
+				"url": {
+					"raw": "http://localhost:8080/trip/LAS",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"trip",
+						"LAS"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "trip-reservation",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"departure\": \"ATL\",\n    \"arrival\": \"LAS\",\n    \"date\": \"2024-12-12\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8080/trip/reserve",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"trip",
+						"reserve"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

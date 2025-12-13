@@ -1938,5 +1938,5 @@ En `src/java/com/jmunoz` modificamos los paquetes/clases siguientes:
 
 - Thread scoped significa que los valores viven solo en el thread que establece dichos valores.
 - Execution scoped significa que los valores viven solo para el runnable (o callable) con el que se les asocia.
-- Hablaremos de **Structured Concurrency** en una de las secciones que todavía quedan.
 - Por último, no olvidar que si estamos usando JDK 25 o superior, el equipo de Java recomienda usar `ScopedValue`.
+

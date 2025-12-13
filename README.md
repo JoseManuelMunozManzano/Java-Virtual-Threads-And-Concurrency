@@ -200,3 +200,75 @@ Ver proyecto `01-virtual-thread-playground`:
     - `Lec07DocumentAccessWithScopedValue`: Clase que llama a `controller/DocumentController` para validar su funcionamiento.
         - Como `Lec03DocumentAccessWithThreadPool`, pero usando el paquete `scopedvalue`. No hay que cambiar nada más.
         - Modificado para, temporalmente, elevar los privilegios del rol de usuario.
+
+## Structured Concurrency (JEP 55)
+
+Sigue estando en pruebas y prefiero no verlo porque puede cambiar en las siguientes versiones de Java.
+
+Cuando sea algo estable que pueda usarse en Producción lo estudiaré.
+
+## Application Development: Spring Boot & Virtual Threads
+
+En esta sección vamos a desarrollar una aplicación sencilla de Spring usando virtual threads y, en la siguiente sección, haremos un test de escalabilidad usando JMeter para ver como escala nuestra aplicación.
+
+[README](./03-trip-advisor/README.md)
+
+Ver proyecto `03-trip-advisor`:
+
+- `client`: Paquete donde realizamos llamadas a los servicios externos usando RestClient.
+    - `AccommodationServiceClient`
+    - `EventServiceClient`
+    - `LocalRecommendationServiceClient`
+    - `TransportationServiceClient`
+    - `WeatherServiceClient`
+    - `FlightSearchServiceClient`
+    - `FlightReservationServiceClient`
+- `config`: Paquete donde tendremos la creación de beans y la configuración de nuestra aplicación.
+    - `ServiceClientsConfig`: Clase de configuración donde creamos los beans necesarios para los clientes.
+    - `ExecutorServiceConfig`: Clase de configuración donde creamos los beans necesarios para ExecutorService.
+- `controller`: Paquete donde exponemos los endpoints.
+    - `TripController`
+- `dtos`: Paquete con DTOs.
+    - Objetos relacionados con los servicios externos.
+        - Para el servicio externo `sec02`
+            - `Accommodation`
+            - `Event`
+            - `LocalRecommendations`
+            - `CarRental`
+            - `PublicTransportation`
+            - `Transportation`
+            - `Weather`
+            - `Flight`
+        - Para el servicio externo `sec03`
+            - `FlightReservationRequest`
+            - `FlightReservationResponse`
+    - DTOs de nuestra aplicación
+        - `TripPlan`: DTO para el API `sec02 - Trip Planning Service Providers`.
+        - `TripReservationRequest`: DTO para el API `sec03 - Flight Search Reservation Service Providers`.
+- `service`: Paquete de servicios.
+    - `TripPlanService`: En este servicio inyectamos los service clients correspondientes a Trip Planning Service Providers (sec02)
+        - Usamos un ExecutorService para ejecutar en paralelo las llamadas a esos service client.
+    - `TripReservationService`: En este servicio inyectamos los service clients correspondientes a Flight Search Reservation Service Providers (sec03)
+
+Añadimos a `application.properties`:
+
+```
+# upstream service properties
+# planning services
+accommodation.service.url=http://localhost:7070/sec02/accommodations/
+event.service.url=http://localhost:7070/sec02/events/
+local-recommendation.service.url=http://localhost:7070/sec02/local-recommendations/
+transportation.service.url=http://localhost:7070/sec02/transportation/
+weather.service.url=http://localhost:7070/sec02/weather/
+
+# search and reservation services
+flight-search.service.url=http://localhost:7070/sec03/flight/search/
+flight-reservation.service.url=http://localhost:7070/sec03/flight/reserve/
+
+# virtual thread enabled/disabled
+spring.threads.virtual.enabled=true
+```
+
+En `src/test/java/com/jmunoz/trip_advisor` creamos la clase siguiente:
+
+- `RestClientTests`: Clase que realmente no es de tests, sino para jugar con RestClient y saber como usarlo.
