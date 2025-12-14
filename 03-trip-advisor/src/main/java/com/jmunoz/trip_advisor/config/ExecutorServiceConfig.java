@@ -26,7 +26,7 @@ public class ExecutorServiceConfig {
     @Bean
     @ConditionalOnThreading(Threading.PLATFORM)
     public ExecutorService platformThreadExecutor() {
-        // Indicamos 500 thread pools, pero da un poco igual para lo que queremos.
-        return Executors.newFixedThreadPool(500);
+        // Para que cree los threads que necesite.
+        return Executors.newCachedThreadPool();
     }
 }

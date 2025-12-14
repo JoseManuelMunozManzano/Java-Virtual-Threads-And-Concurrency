@@ -211,7 +211,7 @@ Cuando sea algo estable que pueda usarse en Producción lo estudiaré.
 
 En esta sección vamos a desarrollar una aplicación sencilla de Spring usando virtual threads y, en la siguiente sección, haremos un test de escalabilidad usando JMeter para ver como escala nuestra aplicación.
 
-[README](./03-trip-advisor/README.md)
+[README](./03-trip-advisor/README.md#spring-boot-project)
 
 Ver proyecto `03-trip-advisor`:
 
@@ -225,6 +225,7 @@ Ver proyecto `03-trip-advisor`:
     - `FlightReservationServiceClient`
 - `config`: Paquete donde tendremos la creación de beans y la configuración de nuestra aplicación.
     - `ServiceClientsConfig`: Clase de configuración donde creamos los beans necesarios para los clientes.
+        - RestClient, por debajo, usa HttpClient y este crea muchos platform threads. Lo corregimos usando `requestFactory()` para que no los cree.
     - `ExecutorServiceConfig`: Clase de configuración donde creamos los beans necesarios para ExecutorService.
 - `controller`: Paquete donde exponemos los endpoints.
     - `TripController`
@@ -272,3 +273,9 @@ spring.threads.virtual.enabled=true
 En `src/test/java/com/jmunoz/trip_advisor` creamos la clase siguiente:
 
 - `RestClientTests`: Clase que realmente no es de tests, sino para jugar con RestClient y saber como usarlo.
+
+## Performance Testing With JMeter
+
+En esta sección vamos a hablar de testeo de escalabilidad con JMeter.
+
+[README](./03-trip-advisor/README.md#performance-testing-with-jmeter)

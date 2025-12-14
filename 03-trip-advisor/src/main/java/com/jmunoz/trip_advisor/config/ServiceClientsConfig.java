@@ -6,12 +6,19 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+import java.net.http.HttpClient;
+import java.util.concurrent.Executors;
 
 @Configuration
 public class ServiceClientsConfig {
 
     private static final Logger log = LoggerFactory.getLogger(ServiceClientsConfig.class);
+
+    @Value("${spring.threads.virtual.enabled}")
+    private boolean isVirtualThreadEnabled;
 
     @Bean
     public AccommodationServiceClient accommodationServiceClient(@Value("${accommodation.service.url}") String baseUrl) {
@@ -48,10 +55,21 @@ public class ServiceClientsConfig {
         return new FlightReservationServiceClient(buildRestClient(baseUrl));
     }
 
+    // RestClient por debajo usa HttpClient, y este crea muchos platform threads para ejecutar las tareas.
+    // Es decir, que al final usa Cached Thread Pool y crea muchos threads.
+    // Esto lo hemos visto en la prueba de JMeter y JConsole.
+    // Vamos a corregir esto usando requestFactory()
     private RestClient buildRestClient(String baseUrl) {
         log.info("base url: {}", baseUrl);
-        return RestClient.builder()
-                .baseUrl(baseUrl)
-                .build();
+        var builder = RestClient.builder().baseUrl(baseUrl);
+
+        // Por defecto JdkClientHttpRequestFactory usa platform threads.
+        // Usamos el Executor de Virtual Threads.
+        // Pero esto solo lo hacemos cuando la property para usar virtual threads está a true.
+        if (isVirtualThreadEnabled) {
+            builder = builder.requestFactory(new JdkClientHttpRequestFactory(HttpClient.newBuilder().executor(Executors.newVirtualThreadPerTaskExecutor()).build()));
+        }
+
+        return builder.build();
     }
 }

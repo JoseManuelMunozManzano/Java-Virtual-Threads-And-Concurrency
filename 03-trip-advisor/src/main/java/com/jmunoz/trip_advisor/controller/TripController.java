@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("trip")
 public class TripController {
 
-    private static final Logger log = LoggerFactory.getLogger(TripController.class);
+//    private static final Logger log = LoggerFactory.getLogger(TripController.class);
 
     private final TripPlanService planService;
     private final TripReservationService reservationService;
@@ -26,7 +26,7 @@ public class TripController {
     // En vez de TripPlan podríamos devolver un ResponseEntity<TripPlan> para hacerlo incluso mejor.
     @GetMapping("{airportCode}")
     public TripPlan planTrip(@PathVariable String airportCode) {
-        log.info("airport code: {}, is Virtual: {}", airportCode, Thread.currentThread().isVirtual());
+//        log.info("airport code: {}, is Virtual: {}", airportCode, Thread.currentThread().isVirtual());
         return this.planService.getTripPlan(airportCode);
     }
 
