@@ -279,3 +279,60 @@ En `src/test/java/com/jmunoz/trip_advisor` creamos la clase siguiente:
 En esta sección vamos a hablar de testeo de escalabilidad con JMeter.
 
 [README](./03-trip-advisor/README.md#performance-testing-with-jmeter)
+
+## What's Next?
+
+### Migration Guide For Existing Applications
+
+En esta clase vamos a ver los pasos que tenemos que hacer para migrar una aplicación existente para que use virtual threads.
+
+- Los Virtual Threads destacan en tareas I/O. No destacan en el 100% de tareas de mucho cómputo, y aquí no vamos a obtener beneficios.
+  - Si la tarea incluye mucho cómputo, no migrar, no tiene sentido.
+- Buscar en la aplicación la palabra clave `synchronized` (error temporal en Java por el tema de `pinned threads`)
+  - Verifica muy muy bien si estás haciendo operaciones I/O. En ese caso usar `Reentrant Lock` en vez de `synchronized`.
+    - Así evitamos `pinned threads`.
+  - Ejecutar la aplicación para detectar el problema de `pinned threads` en nuestro uso de bibliotecas de terceros con la siguiente property:
+    - `-Djdk.tracePinnedThreads=full`
+    - Si encontramos `pinned threads` y no es problema nuestro, sino de alguna librería, ver si existe alguna actualización de dicha librería y actualizar la dependencia.
+  - `Thread Builder` NO es thread safe. `ThreadFactory` SI es thread safe.
+  - Si nuestra aplicación usa `ExecutorService`:
+    - Las implementaciones `Single / Fixed / Cached / Scheduled` - ¡hacen pools de threads porque son para platform threads!
+    - Virtual Threads NO deben estar en un pool. Usar `ThreadPerTaskExecutor`.
+    - Si tenemos que limitar la concurrencia, usar `Semaphore`.
+  - `ThreadLocal` funciona con Virtual Thread, pero comprueba si de verdad necesitas usarlos con Virtual Threads.
+    - No almacenar objetos pesados porque podemos crear millones de virtual threads.
+
+### Is Reactive Programming Dead?
+
+- Virtual Thread
+  - Para hacer un uso más eficiente de los recursos del sistema.
+  - Obtenemos beneficios I/O no bloqueantes.
+- Structured Concurrency (en Java25 sigue en preview)
+  - Para tratar un grupo de tareas relacionadas como una unidad única de trabajo.
+  - Para dividir una tarea en subtareas independientes más pequeñas y así mejorar el tiempo de respuesta y el rendimiento.
+  - Lo que intenta resolver no tiene nada que ver con la programación reactiva.
+
+Si puedo tratar I/O no bloqueante usando Virtual Threads, ¿para qué necesito la programación reactiva?
+
+Bueno, es un error pensar que toda la clave de la programación reactiva es conseguir I/O no bloqueante.
+
+- Programación Reactiva
+  - Es un paradigma de programación.
+  - Es una implementación del patrón Observer.
+  - Pilares:
+    - I/O no bloqueante.
+    - Comunicación asíncrona basada en flujos (stream).
+    - Con soporte de `back-pressure`.
+      - El producer para automáticamente de producir elementos cuando cree que el consumer no está consumiendo estos elementos.
+  - Necesitamos la programación reactiva para construir sistemas reactivos.
+- Bibliotecas para Programación Reactiva
+  - reactor / rxjava2 / akka-streams
+  - Usan platform threads por ahora, ya que es lo que había antes de Java 21.
+  - Pero en Project Reactor 3.6.0 ya hay soporte para Virtual Threads.
+- Mis cursos hechos sobre programación reactiva: 
+  - https://github.com/JoseManuelMunozManzano/Mastering-Java-Reactive-Programming
+  - https://github.com/JoseManuelMunozManzano/Spring-WebFlux-Masterclass-Reactive-Microservices
+  - https://github.com/JoseManuelMunozManzano/Reactive-Microservices-Architecture--And-Design-Patterns
+
+- CompletableFuture no es lo mismo que la Programación Reactiva.
+  - CompletableFuture no puede enviar stream de valores, solo un valor cada vez.
